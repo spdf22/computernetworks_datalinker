@@ -2,6 +2,8 @@
 .vs/
 Debug/
 Release/
+Win32-Debug/
+Win32-Release/
 x64/
 x86/
 ipch/
