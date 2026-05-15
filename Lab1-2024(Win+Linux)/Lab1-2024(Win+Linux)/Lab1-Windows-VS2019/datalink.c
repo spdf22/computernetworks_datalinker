@@ -9,6 +9,10 @@
 #define DATA_TIMER 1200
 #define ACK_TIMER 280
 
+#define ACK_NONE 0
+#define ACK_SELECTIVE 1
+#define ACK_CUMULATIVE 2
+
 struct FRAME {
 	unsigned char kind;
 	unsigned char ack;
@@ -35,7 +39,6 @@ static int phl_ready = 0;
 static int ack_pending = 0;
 static int nak_sent = 0;
 static unsigned char pending_ack = MAX_SEQ;
-static unsigned char last_ack_sent = MAX_SEQ;
 
 static unsigned char inc(unsigned char seq)
 {
@@ -60,14 +63,13 @@ static void send_data_frame(unsigned char frame_nr)
 
 	s.kind = FRAME_DATA;
 	s.seq = frame_nr;
-	s.ack = ack_pending ? pending_ack : 0;
-	s.ack_valid = ack_pending ? 1 : 0;
+	s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
+	s.ack_valid = ACK_CUMULATIVE;
 	memcpy(s.data, out_buf[frame_nr % NR_BUFS], PKT_LEN);
 
 	dbg_frame("Send DATA %d %d, ID %d\n", s.seq, s.ack_valid ? s.ack : 255, *(short *)s.data);
 
 	if (ack_pending) {
-		last_ack_sent = pending_ack;
 		ack_pending = 0;
 		stop_ack_timer();
 	}
@@ -81,16 +83,15 @@ static void send_ack_frame(unsigned char seq)
 
 	s.kind = FRAME_ACK;
 	s.ack = seq;
-	s.ack_valid = 1;
+	s.ack_valid = ACK_SELECTIVE;
 
 	dbg_frame("Send ACK  %d\n", s.ack);
 
-	last_ack_sent = seq;
 	if (ack_pending && pending_ack == seq) {
 		ack_pending = 0;
 		stop_ack_timer();
 	}
-	put_frame((unsigned char *)&s, 2);
+	put_frame((unsigned char *)&s, 3);
 }
 
 static void delay_ack(unsigned char seq)
@@ -108,21 +109,36 @@ static void send_nak_frame(unsigned char seq)
 
 	s.kind = FRAME_NAK;
 	s.ack = seq;
-	s.ack_valid = 1;
+	s.ack_valid = ACK_SELECTIVE;
 
 	dbg_frame("Send NAK  %d\n", s.ack);
 
 	nak_sent = 1;
-	put_frame((unsigned char *)&s, 2);
+	put_frame((unsigned char *)&s, 3);
 }
 
-static void handle_ack(unsigned char seq)
+static void mark_acked(unsigned char seq)
 {
 	if (between(ack_expected, seq, next_frame_to_send) &&
 	    out_seq[seq % NR_BUFS] == seq && !acked[seq % NR_BUFS]) {
 		acked[seq % NR_BUFS] = 1;
 		nbuffered--;
 		stop_timer(seq);
+	}
+}
+
+static void handle_ack(unsigned char seq, unsigned char ack_type)
+{
+	unsigned char s;
+
+	if (ack_type == ACK_CUMULATIVE && between(ack_expected, seq, next_frame_to_send)) {
+		s = ack_expected;
+		while (between(ack_expected, s, inc(seq))) {
+			mark_acked(s);
+			s = inc(s);
+		}
+	} else if (ack_type == ACK_SELECTIVE) {
+		mark_acked(seq);
 	}
 
 	while (ack_expected != next_frame_to_send &&
@@ -202,7 +218,7 @@ int main(int argc, char **argv)
 
 			if (f.kind == FRAME_ACK) {
 				dbg_frame("Recv ACK  %d\n", f.ack);
-				handle_ack(f.ack);
+				handle_ack(f.ack, f.ack_valid);
 			}
 
 			if (f.kind == FRAME_NAK) {
@@ -213,7 +229,7 @@ int main(int argc, char **argv)
 			if (f.kind == FRAME_DATA) {
 				dbg_frame("Recv DATA %d %d, ID %d\n", f.seq, f.ack_valid ? f.ack : 255, *(short *)f.data);
 				if (f.ack_valid)
-					handle_ack(f.ack);
+					handle_ack(f.ack, f.ack_valid);
 				accept_data_frame(&f, len);
 			}
 			break;
