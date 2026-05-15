@@ -7,6 +7,7 @@
 #define MAX_SEQ 7
 #define NR_BUFS 4
 #define DATA_TIMER 1200
+#define ACK_TIMER 280
 
 struct FRAME {
 	unsigned char kind;
@@ -22,6 +23,7 @@ static unsigned char frame_expected = 0;
 static unsigned char nbuffered = 0;
 static unsigned char out_buf[NR_BUFS][PKT_LEN];
 static int phl_ready = 0;
+static int ack_pending = 0;
 
 static unsigned char inc(unsigned char seq)
 {
@@ -56,6 +58,8 @@ static void send_data_frame(unsigned char frame_nr)
 
 	dbg_frame("Send DATA %d %d, ID %d\n", s.seq, s.ack, *(short *)s.data);
 
+	ack_pending = 0;
+	stop_ack_timer();
 	put_frame((unsigned char *)&s, 3 + PKT_LEN);
 	start_timer(frame_nr, DATA_TIMER);
 }
@@ -69,6 +73,8 @@ static void send_ack_frame(void)
 
 	dbg_frame("Send ACK  %d\n", s.ack);
 
+	ack_pending = 0;
+	stop_ack_timer();
 	put_frame((unsigned char *)&s, 2);
 }
 
@@ -90,7 +96,7 @@ int main(int argc, char **argv)
 	int len = 0;
 
 	protocol_init(argc, argv);
-	lprintf("Go-Back-N basic, build: " __DATE__ "  " __TIME__ "\n");
+	lprintf("Go-Back-N with piggybacked ACK and ACK timer, build: " __DATE__ "  " __TIME__ "\n");
 
 	disable_network_layer();
 
@@ -124,8 +130,11 @@ int main(int argc, char **argv)
 				if (f.seq == frame_expected) {
 					put_packet(f.data, len - 7);
 					frame_expected = inc(frame_expected);
+					ack_pending = 1;
+					start_ack_timer(ACK_TIMER);
+				} else {
+					send_ack_frame();
 				}
-				send_ack_frame();
 			}
 
 			while (between(ack_expected, f.ack, next_frame_to_send)) {
@@ -138,6 +147,13 @@ int main(int argc, char **argv)
 		case DATA_TIMEOUT:
 			dbg_event("---- DATA %d timeout\n", arg);
 			resend_window();
+			break;
+
+		case ACK_TIMEOUT:
+			if (ack_pending) {
+				dbg_event("---- ACK timeout\n");
+				send_ack_frame();
+			}
 			break;
 		}
 
