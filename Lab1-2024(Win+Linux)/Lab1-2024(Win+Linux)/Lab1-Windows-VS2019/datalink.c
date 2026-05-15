@@ -24,6 +24,7 @@ static unsigned char nbuffered = 0;
 static unsigned char out_buf[NR_BUFS][PKT_LEN];
 static int phl_ready = 0;
 static int ack_pending = 0;
+static int nak_sent = 0;
 
 static unsigned char inc(unsigned char seq)
 {
@@ -78,12 +79,35 @@ static void send_ack_frame(void)
 	put_frame((unsigned char *)&s, 2);
 }
 
+static void send_nak_frame(void)
+{
+	struct FRAME s;
+
+	s.kind = FRAME_NAK;
+	s.ack = frame_expected;
+
+	dbg_frame("Send NAK  %d\n", s.ack);
+
+	nak_sent = 1;
+	ack_pending = 0;
+	stop_ack_timer();
+	put_frame((unsigned char *)&s, 2);
+}
+
 static void resend_window(void)
 {
 	unsigned char seq = ack_expected;
 	unsigned char i;
 
 	for (i = 0; i < nbuffered; i++) {
+		send_data_frame(seq);
+		seq = inc(seq);
+	}
+}
+
+static void resend_from(unsigned char seq)
+{
+	while (between(ack_expected, seq, next_frame_to_send)) {
 		send_data_frame(seq);
 		seq = inc(seq);
 	}
@@ -96,7 +120,7 @@ int main(int argc, char **argv)
 	int len = 0;
 
 	protocol_init(argc, argv);
-	lprintf("Go-Back-N with piggybacked ACK and ACK timer, build: " __DATE__ "  " __TIME__ "\n");
+	lprintf("Go-Back-N with piggybacked ACK, ACK timer and NAK, build: " __DATE__ "  " __TIME__ "\n");
 
 	disable_network_layer();
 
@@ -119,28 +143,40 @@ int main(int argc, char **argv)
 			len = recv_frame((unsigned char *)&f, sizeof f);
 			if (len < 5 || crc32((unsigned char *)&f, len) != 0) {
 				dbg_event("**** Receiver Error, Bad CRC Checksum\n");
+				if (!nak_sent)
+					send_nak_frame();
 				break;
 			}
 
 			if (f.kind == FRAME_ACK)
 				dbg_frame("Recv ACK  %d\n", f.ack);
 
+			if (f.kind == FRAME_NAK) {
+				dbg_frame("Recv NAK  %d\n", f.ack);
+				resend_from(f.ack);
+			}
+
 			if (f.kind == FRAME_DATA) {
 				dbg_frame("Recv DATA %d %d, ID %d\n", f.seq, f.ack, *(short *)f.data);
 				if (f.seq == frame_expected) {
 					put_packet(f.data, len - 7);
 					frame_expected = inc(frame_expected);
+					nak_sent = 0;
 					ack_pending = 1;
 					start_ack_timer(ACK_TIMER);
+				} else if (!nak_sent) {
+					send_nak_frame();
 				} else {
 					send_ack_frame();
 				}
 			}
 
-			while (between(ack_expected, f.ack, next_frame_to_send)) {
-				nbuffered--;
-				stop_timer(ack_expected);
-				ack_expected = inc(ack_expected);
+			if (f.kind != FRAME_NAK) {
+				while (between(ack_expected, f.ack, next_frame_to_send)) {
+					nbuffered--;
+					stop_timer(ack_expected);
+					ack_expected = inc(ack_expected);
+				}
 			}
 			break;
 
