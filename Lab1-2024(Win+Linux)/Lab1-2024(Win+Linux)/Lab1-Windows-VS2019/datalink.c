@@ -4,7 +4,7 @@
 #include "protocol.h"
 #include "datalink.h"
 
-#define MAX_SEQ 15
+#define MAX_SEQ 127
 #define NR_BUFS 8
 #define DATA_TIMER 1200
 #define ACK_TIMER 280
