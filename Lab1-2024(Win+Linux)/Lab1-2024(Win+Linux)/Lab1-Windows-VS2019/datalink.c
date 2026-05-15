@@ -13,6 +13,7 @@ struct FRAME {
 	unsigned char kind;
 	unsigned char ack;
 	unsigned char seq;
+	unsigned char ack_valid;
 	unsigned char data[PKT_LEN];
 	unsigned int padding;
 };
@@ -59,17 +60,18 @@ static void send_data_frame(unsigned char frame_nr)
 
 	s.kind = FRAME_DATA;
 	s.seq = frame_nr;
-	s.ack = ack_pending ? pending_ack : last_ack_sent;
+	s.ack = ack_pending ? pending_ack : 0;
+	s.ack_valid = ack_pending ? 1 : 0;
 	memcpy(s.data, out_buf[frame_nr % NR_BUFS], PKT_LEN);
 
-	dbg_frame("Send DATA %d %d, ID %d\n", s.seq, s.ack, *(short *)s.data);
+	dbg_frame("Send DATA %d %d, ID %d\n", s.seq, s.ack_valid ? s.ack : 255, *(short *)s.data);
 
 	if (ack_pending) {
 		last_ack_sent = pending_ack;
 		ack_pending = 0;
 		stop_ack_timer();
 	}
-	put_frame((unsigned char *)&s, 3 + PKT_LEN);
+	put_frame((unsigned char *)&s, 4 + PKT_LEN);
 	start_timer(frame_nr, DATA_TIMER);
 }
 
@@ -79,6 +81,7 @@ static void send_ack_frame(unsigned char seq)
 
 	s.kind = FRAME_ACK;
 	s.ack = seq;
+	s.ack_valid = 1;
 
 	dbg_frame("Send ACK  %d\n", s.ack);
 
@@ -105,6 +108,7 @@ static void send_nak_frame(unsigned char seq)
 
 	s.kind = FRAME_NAK;
 	s.ack = seq;
+	s.ack_valid = 1;
 
 	dbg_frame("Send NAK  %d\n", s.ack);
 
@@ -141,7 +145,7 @@ static void accept_data_frame(struct FRAME *f, int len)
 	if (between(frame_expected, f->seq, too_far) && !arrived[f->seq % NR_BUFS]) {
 		arrived[f->seq % NR_BUFS] = 1;
 		in_seq[f->seq % NR_BUFS] = f->seq;
-		memcpy(in_buf[f->seq % NR_BUFS], f->data, len - 7);
+		memcpy(in_buf[f->seq % NR_BUFS], f->data, len - 8);
 		delay_ack(f->seq);
 	} else {
 		send_ack_frame(f->seq);
@@ -207,8 +211,9 @@ int main(int argc, char **argv)
 			}
 
 			if (f.kind == FRAME_DATA) {
-				dbg_frame("Recv DATA %d %d, ID %d\n", f.seq, f.ack, *(short *)f.data);
-				handle_ack(f.ack);
+				dbg_frame("Recv DATA %d %d, ID %d\n", f.seq, f.ack_valid ? f.ack : 255, *(short *)f.data);
+				if (f.ack_valid)
+					handle_ack(f.ack);
 				accept_data_frame(&f, len);
 			}
 			break;
