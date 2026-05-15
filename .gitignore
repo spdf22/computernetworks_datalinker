@@ -1,0 +1,26 @@
+# Visual Studio build/cache output
+.vs/
+Debug/
+Release/
+x64/
+x86/
+ipch/
+*.suo
+*.user
+*.VC.db
+*.VC.VC.opendb
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog/
+
+# Runtime logs and generated executables
+*.log
+*.exe
+
+# Office temporary lock files
+~$*
+
+# Large local media supplied with the lab package
+*.mp4
