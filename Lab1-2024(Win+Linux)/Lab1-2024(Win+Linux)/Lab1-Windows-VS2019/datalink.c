@@ -6,8 +6,8 @@
 
 #define MAX_SEQ 15
 #define NR_BUFS 8
-#define DATA_TIMER 1200
-#define ACK_TIMER 280
+#define DATA_TIMER 3198
+#define ACK_TIMER 264
 
 #define ACK_NONE 0
 #define ACK_SELECTIVE 1
