@@ -4,8 +4,8 @@
 #include "protocol.h"
 #include "datalink.h"
 
-#define MAX_SEQ 7
-#define NR_BUFS 4
+#define MAX_SEQ 127
+#define NR_BUFS 64
 #define DATA_TIMER 1200
 #define ACK_TIMER 280
 
@@ -25,6 +25,8 @@ static unsigned char nbuffered = 0;
 
 static unsigned char out_buf[NR_BUFS][PKT_LEN];
 static unsigned char in_buf[NR_BUFS][PKT_LEN];
+static unsigned char out_seq[NR_BUFS];
+static unsigned char in_seq[NR_BUFS];
 static int arrived[NR_BUFS];
 static int acked[NR_BUFS];
 
@@ -90,6 +92,8 @@ static void send_ack_frame(unsigned char seq)
 
 static void delay_ack(unsigned char seq)
 {
+	if (ack_pending && pending_ack != seq)
+		send_ack_frame(pending_ack);
 	pending_ack = seq;
 	ack_pending = 1;
 	start_ack_timer(ACK_TIMER);
@@ -110,13 +114,16 @@ static void send_nak_frame(unsigned char seq)
 
 static void handle_ack(unsigned char seq)
 {
-	if (between(ack_expected, seq, next_frame_to_send) && !acked[seq % NR_BUFS]) {
+	if (between(ack_expected, seq, next_frame_to_send) &&
+	    out_seq[seq % NR_BUFS] == seq && !acked[seq % NR_BUFS]) {
 		acked[seq % NR_BUFS] = 1;
 		nbuffered--;
 		stop_timer(seq);
 	}
 
-	while (ack_expected != next_frame_to_send && acked[ack_expected % NR_BUFS]) {
+	while (ack_expected != next_frame_to_send &&
+	       out_seq[ack_expected % NR_BUFS] == ack_expected &&
+	       acked[ack_expected % NR_BUFS]) {
 		acked[ack_expected % NR_BUFS] = 0;
 		ack_expected = inc(ack_expected);
 	}
@@ -124,7 +131,8 @@ static void handle_ack(unsigned char seq)
 
 static void resend_one(unsigned char seq)
 {
-	if (between(ack_expected, seq, next_frame_to_send) && !acked[seq % NR_BUFS])
+	if (between(ack_expected, seq, next_frame_to_send) &&
+	    out_seq[seq % NR_BUFS] == seq && !acked[seq % NR_BUFS])
 		send_data_frame(seq);
 }
 
@@ -132,6 +140,7 @@ static void accept_data_frame(struct FRAME *f, int len)
 {
 	if (between(frame_expected, f->seq, too_far) && !arrived[f->seq % NR_BUFS]) {
 		arrived[f->seq % NR_BUFS] = 1;
+		in_seq[f->seq % NR_BUFS] = f->seq;
 		memcpy(in_buf[f->seq % NR_BUFS], f->data, len - 7);
 		delay_ack(f->seq);
 	} else {
@@ -141,7 +150,7 @@ static void accept_data_frame(struct FRAME *f, int len)
 	if (f->seq != frame_expected && !nak_sent)
 		send_nak_frame(frame_expected);
 
-	while (arrived[frame_expected % NR_BUFS]) {
+	while (arrived[frame_expected % NR_BUFS] && in_seq[frame_expected % NR_BUFS] == frame_expected) {
 		put_packet(in_buf[frame_expected % NR_BUFS], PKT_LEN);
 		arrived[frame_expected % NR_BUFS] = 0;
 		frame_expected = inc(frame_expected);
@@ -167,6 +176,7 @@ int main(int argc, char **argv)
 		switch (event) {
 		case NETWORK_LAYER_READY:
 			get_packet(out_buf[next_frame_to_send % NR_BUFS]);
+			out_seq[next_frame_to_send % NR_BUFS] = next_frame_to_send;
 			acked[next_frame_to_send % NR_BUFS] = 0;
 			nbuffered++;
 			send_data_frame(next_frame_to_send);
