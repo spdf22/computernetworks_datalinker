@@ -8,6 +8,26 @@ Selective Repeat + 捎带确认 + ACK 定时器 + NAK
 
 `main` 分支等同于 `04` 分支，也就是最终验收版本。
 
+## 最简单使用方式
+
+如果不想切换 Git 分支，直接使用下面两个独立工程文件夹即可：
+
+```text
+03-GBN验收版/
+04-SR验收版/
+```
+
+这两个文件夹都包含完整的 Visual Studio 工程，可以直接打开其中的 `datalink.sln` 编译运行。
+
+推荐验收时：
+
+```text
+03-GBN验收版    用于展示 Go-Back-N
+04-SR验收版     用于展示 Selective Repeat
+```
+
+这种方式不需要执行 `git checkout`，最适合队友直接从 GitHub 克隆后使用。
+
 ## 版本结构
 
 | 分支 | 协议版本 | 窗口设置 | 说明 |
