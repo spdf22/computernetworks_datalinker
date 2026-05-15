@@ -1,29 +1,61 @@
-# Computer Networks Lab 1: Data Link Layer Protocols
+# 计算机网络实验一：数据链路层协议
 
-北京邮电大学计算机网络实验一：数据链路层滑动窗口协议设计与实现。
+本仓库用于保存数据链路层实验的代码、版本演进和测试说明。当前主版本实现的是：
 
-本仓库整理为小组协作与实验报告使用的代码仓库。默认分支展示最终实现版本：**Selective Repeat (SR) + piggybacked ACK + ACK timer + NAK**。历史分支保留了从原始停等协议到各个可选协议的演进过程。
+```text
+Selective Repeat + 捎带确认 + ACK 定时器 + NAK
+```
+
+`main` 分支等同于 `04` 分支，也就是最终验收版本。
 
 ## 版本结构
 
-| 分支 / 标签 | 协议版本 | 说明 |
-| --- | --- | --- |
-| `version/00-stopwait-baseline` / `baseline-stopwait` | Stop-and-Wait | 实验包原始停等协议样例 |
-| `version/01-gbn-basic` / `version-gbn-basic` | Go-Back-N | 基础滑动窗口、累计 ACK、超时回退重传 |
-| `version/02-gbn-piggyback-acktimer` / `version-gbn-piggyback-acktimer` | GBN + piggyback + ACK timer | 在数据帧中捎带 ACK，并使用 ACK 定时器延迟独立确认 |
-| `version/03-gbn-nak` / `version-gbn-nak` | GBN + NAK | 在误码或乱序时使用 NAK 加快恢复 |
-| `version/04-sr-selective-repeat` / `version-sr-selective-repeat` | Selective Repeat | 最终版本，支持乱序缓存、选择确认、选择重传、NAK、ACK timer |
+| 分支 | 协议版本 | 窗口设置 | 说明 |
+| --- | --- | --- | --- |
+| `00` | 停等协议 Stop-and-Wait | 发送窗口 1，接收窗口 1 | 基础可靠传输版本 |
+| `01` | 基础 Go-Back-N | `MAX_SEQ=7`，发送窗口 `NR_BUFS=4`，接收窗口 1 | GBN 基础版本 |
+| `02` | GBN + 捎带确认 + ACK 定时器 | `MAX_SEQ=7`，发送窗口 `NR_BUFS=4`，接收窗口 1 | 增加 piggyback ACK 和 ACK timer |
+| `03` | GBN + NAK | `MAX_SEQ=15`，发送窗口 `NR_BUFS=8`，接收窗口 1 | 最终 GBN 对比版本 |
+| `04` | Selective Repeat + 捎带确认 + ACK 定时器 + NAK | `MAX_SEQ=15`，发送窗口 `NR_BUFS=8`，接收窗口 8 | 最终 SR 验收版本 |
 
-切换版本示例：
+标签也提供了两套入口：
 
-```powershell
-git switch version/01-gbn-basic
-git switch version/04-sr-selective-repeat
+```text
+v00, v01, v02, v03, v04
+版本00-停等协议
+版本01-基础GBN
+版本02-GBN捎带确认
+版本03-GBN最终对比
+版本04-SR最终验收
+```
+
+## 直接阅读代码
+
+如果只是阅读各版本代码，不想频繁切换分支，可以打开：
+
+```text
+版本代码对照/
+```
+
+其中包含每个版本的 `datalink.c` 快照：
+
+```text
+00-停等协议-datalink.c
+01-基础GBN-datalink.c
+02-GBN捎带确认ACK定时器-datalink.c
+03-GBN最终对比NAK窗口8-datalink.c
+04-SR最终验收选择重传-datalink.c
+```
+
+注意：这些文件只用于阅读。真正编译运行时，仍然使用工程目录中的：
+
+```text
+Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/datalink.c
 ```
 
 ## 代码位置
 
-主要工程保留 Visual Studio 2019 版本：
+主要工程目录：
 
 ```text
 Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/
@@ -35,29 +67,38 @@ Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/
 datalink.c   协议主体实现
 datalink.h   帧类型定义
 protocol.h   实验框架接口
-protocol.c   仿真网络层、物理层、信道、事件循环
+protocol.c   网络层、物理层、信道和事件循环模拟
 crc32.c      CRC32 校验
 lprintf.c    日志输出
 ```
 
-本仓库已移除 VS2013、VS2017、Linux 示例和教师资料文档，避免 GitHub 页面被无关文件淹没。
+## 切换版本
 
-## 最终 SR 设计摘要
+进入仓库根目录：
 
-最终版本使用选择重传协议，主要机制如下：
+```powershell
+cd "C:\Users\spdf\Desktop\daer2\计网\实验"
+```
 
-- 发送窗口大小 `NR_BUFS = 8`
-- 序号空间 `0..127`，即 `MAX_SEQ = 127`
-- 数据帧超时定时器 `DATA_TIMER = 1200 ms`
-- ACK 延迟定时器 `ACK_TIMER = 280 ms`
-- DATA 帧支持有效位 `ack_valid`，避免旧 ACK 在序号回绕后被误认为新确认
-- 接收端缓存窗口内乱序帧，只有从 `frame_expected` 开始连续可交付时才调用 `put_packet`
-- 收到坏帧或发现缺口时发送 NAK，请求对方重传指定序号
-- 每个发送缓存槽和接收缓存槽记录实际序号，避免序号回绕后的旧帧/旧 ACK 污染当前窗口
+查看当前版本：
 
-窗口大小选择理由：
+```powershell
+git branch --show-current
+```
 
-实验信道为 8000 bps，全双工，单向传播时延 270 ms，网络层分组长度 256 字节。数据帧约 260 字节，发送时间约 260 ms，往返传播时延约 540 ms，因此窗口至少约为 4 才能较好填满信道。最终选择窗口 8，给误码恢复和调度抖动留出余量；序号空间扩大到 128，是为了降低长时间运行时延迟重传帧与新窗口混淆的风险。
+切换到最终 GBN 对比版本：
+
+```powershell
+git checkout 03
+```
+
+切换到最终 SR 验收版本：
+
+```powershell
+git checkout 04
+```
+
+每次切换版本后，都需要重新编译。
 
 ## 编译方法
 
@@ -67,14 +108,10 @@ lprintf.c    日志输出
 Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/datalink.sln
 ```
 
-若 Visual Studio 提示升级 Windows SDK 或平台工具集，可选择当前已安装版本，例如 Windows SDK 10.0、平台工具集 v143。
-
-命令行构建示例：
+也可以用命令行编译：
 
 ```powershell
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
-  "Lab1-2024(Win+Linux)\Lab1-2024(Win+Linux)\Lab1-Windows-VS2019\datalink.sln" `
-  /p:Configuration=Debug /p:Platform=Win32
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" "Lab1-2024(Win+Linux)\Lab1-2024(Win+Linux)\Lab1-Windows-VS2019\datalink.sln" /p:Configuration=Debug /p:Platform=Win32 /m
 ```
 
 生成的可执行文件通常位于：
@@ -83,7 +120,7 @@ Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/datalink.sln
 Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/Win32-Debug/datalink.exe
 ```
 
-## 运行与测试
+## 运行方法
 
 进入可执行文件目录：
 
@@ -91,67 +128,102 @@ Lab1-2024(Win+Linux)/Lab1-2024(Win+Linux)/Lab1-Windows-VS2019/Win32-Debug/datali
 cd "C:\Users\spdf\Desktop\daer2\计网\实验\Lab1-2024(Win+Linux)\Lab1-2024(Win+Linux)\Lab1-Windows-VS2019\Win32-Debug"
 ```
 
-每次测试需要打开两个 PowerShell，先启动 A 站，再启动 B 站。
+每次测试打开两个 PowerShell 窗口，先运行 A 端，再运行 B 端。
 
-无误码洪水模式：
-
-```powershell
-.\datalink.exe -t 60 -u -f -d3 --log report-logs\manual-sr-u-f-A.log A
-.\datalink.exe -t 60 -u -f -d3 --log report-logs\manual-sr-u-f-B.log B
-```
-
-默认误码率 `1e-5`：
+无误码，120 秒：
 
 ```powershell
-.\datalink.exe -t 60 -f -d3 --log report-logs\manual-sr-default-f-A-v2.log A
-.\datalink.exe -t 60 -f -d3 --log report-logs\manual-sr-default-f-B-v2.log B
+.\datalink.exe -t 120 -u -f -d0 --log final-v04-u120-A.log A
+.\datalink.exe -t 120 -u -f -d0 --log final-v04-u120-B.log B
 ```
 
-高误码率 `1e-4` 压力测试：
+正常误码，300 秒：
 
 ```powershell
-.\datalink.exe -t 60 -f --ber 1e-4 -d3 --log report-logs\manual-sr-ber1e4-f-A-v2.log A
-.\datalink.exe -t 60 -f --ber 1e-4 -d3 --log report-logs\manual-sr-ber1e4-f-B-v2.log B
+.\datalink.exe -t 300 -f -d0 --log final-v04-default300-A.log A
+.\datalink.exe -t 300 -f -d0 --log final-v04-default300-B.log B
 ```
 
-检查是否发生错误交付或异常退出：
+高误码，180 秒：
 
 ```powershell
-Select-String report-logs\manual-sr-*.log -Pattern "FATAL","Abort","bad packet"
+.\datalink.exe -t 180 -f --ber 1e-4 -d0 --log final-v04-ber1e4-180-A.log A
+.\datalink.exe -t 180 -f --ber 1e-4 -d0 --log final-v04-ber1e4-180-B.log B
 ```
 
-提取性能统计：
+检查是否出现异常：
 
 ```powershell
-Select-String report-logs\manual-sr-default-f-A-v2.log -Pattern "packets received" | Select-Object -Last 5
+Select-String final-v04-*.log -Pattern "FATAL","Abort","bad packet"
 ```
 
-## 当前测试结果
+查看最后几条性能统计：
 
-| 测试场景 | 站点 | 最后统计样例 | 结论 |
-| --- | --- | --- | --- |
-| 无误码 + 洪水模式，60 秒 | A | `224 packets, 7726 bps, 96.57%, Err 0` | 稳定，接近满载 |
-| 默认误码率 `1e-5` + 洪水模式，60 秒 | A | `131 packets, 6815 bps, 85.19%, Err 3` | 无 FATAL，持续传输 |
-| 默认误码率 `1e-5` + 洪水模式，60 秒 | B | `144 packets, 5089 bps, 63.61%, Err 5` | 无 FATAL，存在方向波动 |
-| 高误码率 `1e-4` + 洪水模式，60 秒 | A | `18 packets, 4423 bps, 55.28%, Err 7` | 无 FATAL，性能明显下降 |
-| 高误码率 `1e-4` + 洪水模式，60 秒 | B | 无统计输出 | 压力场景下该方向吞吐接近停滞 |
+```powershell
+Select-String final-v04-u120-A.log -Pattern "packets received" | Select-Object -Last 5
+Select-String final-v04-u120-B.log -Pattern "packets received" | Select-Object -Last 5
+```
 
-高误码率测试用于说明协议在压力环境下不会错误交付，但 NAK、超时和重传会显著增加，双向吞吐可能不均衡。这一现象可以作为实验报告“存在问题与改进方向”的材料。
+## 参数说明
 
-## 小组报告建议
+| 参数 | 含义 |
+| --- | --- |
+| `A` / `B` | 指定运行站点 A 或站点 B |
+| `-t 120` | 运行 120 秒 |
+| `-u` | 无误码信道，也就是 utopia 模式 |
+| `-f` | flood 模式，网络层持续产生分组，用于测试吞吐率 |
+| `--ber 1e-4` | 指定误码率为 `10^-4` |
+| `-d0` | 关闭详细调试输出，适合性能测试 |
+| `-d3` | 输出 DATA/ACK/NAK 等调试日志，适合观察协议过程 |
+| `--log xxx.log` | 指定日志文件名 |
 
-推荐三人分工：
+## 最终 SR 设计摘要
+
+最终 SR 版本位于 `04` 分支，主要机制如下：
+
+- 使用 CRC32 检测帧错误。
+- 发送窗口大小为 8。
+- 接收窗口大小为 8。
+- 序号空间为 `0..15`，即 `MAX_SEQ=15`。
+- 数据帧支持捎带 ACK。
+- 使用 ACK 定时器延迟独立 ACK，尽量等待数据帧捎带确认。
+- 发现坏帧或缺口时发送 NAK，加快恢复。
+- 接收方缓存窗口内乱序帧，只有从 `frame_expected` 开始连续到达时才交付网络层。
+- 发送方只重传未确认的指定帧，避免 Go-Back-N 的批量回退浪费。
+
+SR 的窗口大小选择满足：
 
 ```text
-成员 A：协议设计、帧格式、状态变量、主事件循环
-成员 B：测试方法、日志提取、性能表格、运行截图
-成员 C：窗口/定时器参数推导、CRC/NAK 分析、问题与改进
+发送窗口 <= 序号空间 / 2
 ```
 
-报告重点：
+因此 `MAX_SEQ=15` 时，序号空间大小为 16，SR 最大安全窗口为 8。
 
-- 从 Stop-and-Wait 到 GBN，再到 SR 的版本演进
-- 为什么窗口取 8、序号空间取 128
-- CRC 检错后如何通过 NAK 或超时重传恢复
-- ACK timer 和 piggybacked ACK 如何减少独立 ACK
-- 高误码率下吞吐下降的原因与改进方向
+## GBN 与 SR 对比说明
+
+最终对比时主要使用：
+
+```text
+03：最终 GBN 对比版本
+04：最终 SR 验收版本
+```
+
+两者都采用发送窗口 8，便于公平比较。
+
+GBN 接收窗口为 1，乱序帧会被丢弃；遇到错误后可能回退重传多个帧。SR 接收窗口为 8，能够缓存乱序帧，只重传出错或丢失的帧，因此在有误码场景下通常利用率更高。
+
+## 推荐验收讲法
+
+可以按这个顺序介绍：
+
+1. `00` 实现停等协议，作为可靠传输基础。
+2. `01` 实现基础 GBN，引入滑动窗口和累计确认。
+3. `02` 在 GBN 上加入捎带确认和 ACK 定时器，减少独立 ACK。
+4. `03` 在 GBN 上加入 NAK，并把发送窗口调整为 8，用于最终 GBN 性能对比。
+5. `04` 实现 SR，支持乱序缓存、选择确认、选择重传、NAK 和 ACK timer，是最终验收版本。
+
+测试时重点说明：
+
+- 无误码下，窗口协议能显著提高信道利用率。
+- 正常误码下，SR 能通过选择重传减少不必要重传。
+- 高误码下，GBN 会因为回退重传浪费较多，SR 性能通常更稳定。
